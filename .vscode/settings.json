@@ -1,0 +1,12 @@
+{
+    "java.project.sourcePaths": [
+        "src/java"
+    ],
+    "java.project.outputPath": "build/web/WEB-INF/classes",
+    "java.project.referencedLibraries": [
+        "build/web/WEB-INF/lib/*.jar"
+    ],
+    "java.compile.nullAnalysis.mode": "disabled",
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.configuration.runtimes": []
+}
