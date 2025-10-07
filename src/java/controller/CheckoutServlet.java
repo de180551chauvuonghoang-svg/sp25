@@ -1,11 +1,10 @@
 package controller;
 
-import service.OrderService;
 import service.EmailService;
-import productDao.ProductDAO;
+import dao.CartDAO;
+import dao.CartDAO.CheckoutResult;
 import model.User;
 import model.CartItem;
-import model.Product;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -20,8 +19,7 @@ import java.util.logging.Level;
 
 @WebServlet(name = "CheckoutServlet", urlPatterns = {"/checkout"})
 public class CheckoutServlet extends HttpServlet {
-    private OrderService orderService = new OrderService();
-    private ProductDAO productService = new ProductDAO();
+    private CartDAO cartDAO = new CartDAO();
     private EmailService emailService = new EmailService();
     private static final Logger logger = Logger.getLogger(CheckoutServlet.class.getName());
 
@@ -30,8 +28,15 @@ public class CheckoutServlet extends HttpServlet {
             throws ServletException, IOException {
         
         HttpSession session = request.getSession();
-        @SuppressWarnings("unchecked")
-        List<CartItem> cart = (List<CartItem>) session.getAttribute("cart");
+        User loggedInUser = (User) session.getAttribute("loggedInUser");
+        
+        if (loggedInUser == null) {
+            response.sendRedirect("login");
+            return;
+        }
+        
+        // Lấy giỏ hàng từ database
+        List<CartItem> cart = cartDAO.getCartItems(loggedInUser.getId());
         
         if (cart == null || cart.isEmpty()) {
             response.sendRedirect("cart");
@@ -61,8 +66,8 @@ public class CheckoutServlet extends HttpServlet {
             return;
         }
         
-        @SuppressWarnings("unchecked")
-        List<CartItem> cart = (List<CartItem>) session.getAttribute("cart");
+        // Lấy giỏ hàng từ database
+        List<CartItem> cart = cartDAO.getCartItems(loggedInUser.getId());
         
         if (cart == null || cart.isEmpty()) {
             response.sendRedirect("cart");
@@ -70,51 +75,20 @@ public class CheckoutServlet extends HttpServlet {
         }
         
         try {
-            // Kiểm tra tồn kho trước khi tạo đơn hàng
-            boolean stockAvailable = true;
-            StringBuilder stockMessage = new StringBuilder();
-            
+            // Tính tổng tiền
+            double totalPrice = 0;
             for (CartItem item : cart) {
-                Product currentProduct = productService.selectProduct(item.getProduct().getId());
-                if (currentProduct.getStock() < item.getQuantity()) {
-                    stockAvailable = false;
-                    stockMessage.append("Sản phẩm ").append(currentProduct.getName())
-                              .append(" chỉ còn ").append(currentProduct.getStock())
-                              .append(" sản phẩm. ");
-                }
+                totalPrice += item.getProduct().getPrice() * item.getQuantity();
             }
             
-            if (!stockAvailable) {
-                request.setAttribute("error", stockMessage.toString());
-                request.setAttribute("cart", cart);
-                double totalPrice = 0;
-                for (CartItem item : cart) {
-                    totalPrice += item.getProduct().getPrice() * item.getQuantity();
-                }
-                request.setAttribute("totalPrice", totalPrice);
-                request.getRequestDispatcher("checkout.jsp").forward(request, response);
-                return;
-            }
+            // Thực hiện checkout bằng stored procedure (triggers sẽ xử lý validation và cập nhật stock)
+            CheckoutResult checkoutResult = cartDAO.checkout(loggedInUser.getId(), totalPrice, null);
             
-            // Tạo đơn hàng
-            int orderId = orderService.createOrderFromCart(loggedInUser.getId(), cart);
-            
-            if (orderId > 0) {
-                // Cập nhật tồn kho
-                for (CartItem item : cart) {
-                    Product product = item.getProduct();
-                    product.setStock(product.getStock() - item.getQuantity());
-                    productService.updateProduct(product);
-                }
+            if (checkoutResult.isSuccess()) {
+                int orderId = checkoutResult.getOrderId();
                 
                 // Gửi email xác nhận đơn hàng
                 try {
-                    // Tính tổng tiền từ cart
-                    double totalPrice = 0;
-                    for (CartItem item : cart) {
-                        totalPrice += item.getProduct().getPrice() * item.getQuantity();
-                    }
-                    
                     // Tạo order object để gửi email
                     model.Order orderForEmail = new model.Order(orderId, loggedInUser.getId(), 
                                                                totalPrice, "PENDING");
@@ -129,18 +103,12 @@ public class CheckoutServlet extends HttpServlet {
                     logger.log(Level.SEVERE, "Lỗi khi gửi email xác nhận đơn hàng #" + orderId, e);
                 }
                 
-                // Xóa giỏ hàng
-                session.removeAttribute("cart");
-                
                 // Chuyển hướng đến trang thành công
                 response.sendRedirect("cart/success.jsp?orderId=" + orderId);
             } else {
-                request.setAttribute("error", "Có lỗi xảy ra khi tạo đơn hàng. Vui lòng thử lại.");
+                // Checkout thất bại - hiển thị lỗi
+                request.setAttribute("error", checkoutResult.getMessage());
                 request.setAttribute("cart", cart);
-                double totalPrice = 0;
-                for (CartItem item : cart) {
-                    totalPrice += item.getProduct().getPrice() * item.getQuantity();
-                }
                 request.setAttribute("totalPrice", totalPrice);
                 request.getRequestDispatcher("checkout.jsp").forward(request, response);
             }
@@ -148,11 +116,15 @@ public class CheckoutServlet extends HttpServlet {
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error during checkout", e);
             request.setAttribute("error", "Có lỗi xảy ra trong quá trình thanh toán. Vui lòng thử lại.");
-            request.setAttribute("cart", cart);
+            
+            // Lấy lại giỏ hàng và totalPrice cho error page
+            List<CartItem> errorCart = cartDAO.getCartItems(loggedInUser.getId());
             double totalPrice = 0;
-            for (CartItem item : cart) {
+            for (CartItem item : errorCart) {
                 totalPrice += item.getProduct().getPrice() * item.getQuantity();
             }
+            
+            request.setAttribute("cart", errorCart);
             request.setAttribute("totalPrice", totalPrice);
             request.getRequestDispatcher("checkout.jsp").forward(request, response);
         }

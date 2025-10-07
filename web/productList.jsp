@@ -45,6 +45,18 @@
         }
         .stock-warning { color: #dc3545; font-weight: bold; }
         .stock-good { color: #28a745; }
+        .stock-low { color: #ffc107; font-weight: bold; }
+        .out-of-stock { 
+            opacity: 0.6; 
+            background-color: #f8f9fa; 
+        }
+        .out-of-stock-badge {
+            background: #dc3545;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.8em;
+        }
         .add-to-cart-form { display: inline-flex; align-items: center; gap: 5px; }
         .quantity-input { width: 60px; text-align: center; }
     </style>
@@ -98,19 +110,22 @@
             <td>${product.description}</td>
             <td>
                 <c:choose>
+                    <c:when test="${product.status == 'OUT_OF_STOCK' || product.stock == 0}">
+                        <span class="out-of-stock-badge">HẾT HÀNG</span>
+                    </c:when>
                     <c:when test="${product.stock > 10}">
-                        <span class="stock-good">${product.stock}</span>
+                        <span class="stock-good">${product.stock} sản phẩm</span>
                     </c:when>
                     <c:when test="${product.stock > 0}">
-                        <span class="stock-warning">${product.stock}</span>
+                        <span class="stock-low">${product.stock} sản phẩm (Sắp hết)</span>
                     </c:when>
                     <c:otherwise>
-                        <span class="stock-warning">Hết hàng</span>
+                        <span class="out-of-stock-badge">HẾT HÀNG</span>
                     </c:otherwise>
                 </c:choose>
             </td>
             <td>${product.importDate}</td>
-            <td>
+            <td class="${(product.status == 'OUT_OF_STOCK' || product.stock == 0) ? 'out-of-stock' : ''}">
                 <c:if test="${sessionScope.userRole == 'admin'}">
                     <a href="products?action=edit&id=${product.id}" style="color: #28a745; text-decoration: none;">✏️ Sửa</a> |
                     <a href="products?action=confirmDelete&id=${product.id}" style="color: #dc3545; text-decoration: none;">🗑️ Xóa</a>
@@ -118,20 +133,24 @@
                 </c:if>
                 
                 <!-- Add to Cart functionality -->
-                <c:if test="${product.stock > 0}">
-                    <div class="add-to-cart-form mt-2">
-                        <input type="number" min="1" max="${product.stock}" value="1" 
-                               class="form-control quantity-input" id="qty-${product.id}">
-                        <button class="btn btn-sm btn-success" onclick="addToCart(${product.id})">
-                            <i class="fas fa-cart-plus"></i> Thêm
-                        </button>
-                    </div>
-                </c:if>
-                <c:if test="${product.stock == 0}">
-                    <button class="btn btn-sm btn-secondary" disabled>
-                        <i class="fas fa-times"></i> Hết hàng
-                    </button>
-                </c:if>
+                <c:choose>
+                    <c:when test="${product.status == 'AVAILABLE' && product.stock > 0}">
+                        <div class="add-to-cart-form mt-2">
+                            <input type="number" min="1" max="${product.stock}" value="1" 
+                                   class="form-control quantity-input" id="qty-${product.id}">
+                            <button class="btn btn-sm btn-success" onclick="addToCart('${product.id}')">
+                                <i class="fas fa-cart-plus"></i> Thêm
+                            </button>
+                        </div>
+                    </c:when>
+                    <c:otherwise>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-secondary" disabled>
+                                <i class="fas fa-times"></i> Hết hàng
+                            </button>
+                        </div>
+                    </c:otherwise>
+                </c:choose>
             </td>
         </tr>
     </c:forEach>
@@ -185,13 +204,18 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Chuyển đến trang giỏ hàng thay vì hiển thị alert
-                window.location.href = '${pageContext.request.contextPath}/cart';
+                // Cập nhật số lượng giỏ hàng và thông báo
+                updateCartCount();
+                alert(data.message || 'Đã thêm vào giỏ hàng thành công');
             } else {
                 alert(data.message);
                 if (data.availableStock !== undefined) {
                     quantityInput.max = data.availableStock;
                     quantityInput.value = Math.min(quantity, data.availableStock);
+                    // Refresh page để cập nhật trạng thái sản phẩm
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1000);
                 }
             }
         })

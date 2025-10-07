@@ -43,8 +43,9 @@ public class ProductDAO implements IProductDAO {
                 String description = rs.getString("description");
                 int stock = rs.getInt("stock");
                 String importDate = rs.getString("import_date");
+                String status = rs.getString("status");
 
-                product = new Product(id, name, price, description, stock, importDate);
+                product = new Product(id, name, price, description, stock, importDate, status);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -65,8 +66,9 @@ public class ProductDAO implements IProductDAO {
                 String description = rs.getString("description");
                 int stock = rs.getInt("stock");
                 String importDate = rs.getString("import_date");
+                String status = rs.getString("status");
 
-                Product product = new Product(id, name, price, description, stock, importDate);
+                Product product = new Product(id, name, price, description, stock, importDate, status);
                 products.add(product);
             }
         } catch (Exception e) {
@@ -118,8 +120,9 @@ public class ProductDAO implements IProductDAO {
                 String description = rs.getString("description");
                 int stock = rs.getInt("stock");
                 String importDate = rs.getString("import_date");
+                String status = rs.getString("status");
 
-                Product product = new Product(id, name, price, description, stock, importDate);
+                Product product = new Product(id, name, price, description, stock, importDate, status);
                 products.add(product);
             }
         } catch (Exception e) {

@@ -69,6 +69,20 @@
         }
         .checkout-btn:hover { background: #218838; }
         .empty-cart { text-align: center; padding: 50px; }
+        .out-of-stock { opacity: 0.6; background-color: #f8f9fa; }
+        .out-of-stock-text { color: #dc3545; font-weight: bold; }
+        .stock-warning { color: #ffc107; font-weight: bold; }
+        .alert { 
+            padding: 15px; 
+            margin-bottom: 20px; 
+            border: 1px solid transparent; 
+            border-radius: 4px; 
+        }
+        .alert-danger { 
+            color: #721c24; 
+            background-color: #f8d7da; 
+            border-color: #f5c6cb; 
+        }
     </style>
 </head>
 <body>
@@ -94,26 +108,40 @@
             </div>
         </c:when>
         <c:otherwise>
+            <c:if test="${not empty error}">
+                <div class="alert alert-danger" role="alert">
+                    ${error}
+                </div>
+            </c:if>
+            
             <c:forEach var="item" items="${cart}">
-                <div class="cart-item">
+                <div class="cart-item ${(item.product.status == 'OUT_OF_STOCK' || item.product.stock == 0) ? 'out-of-stock' : ''}">
                     <div class="product-info">
                         <h4>${item.product.name}</h4>
                         <p>Giá: <fmt:formatNumber value="${item.product.price}" type="currency" currencySymbol="₫"/></p>
                         <p>Có sẵn: ${item.product.stock} sản phẩm</p>
+                        <c:if test="${item.product.status == 'OUT_OF_STOCK' || item.product.stock == 0}">
+                            <p class="out-of-stock-text">❌ Sản phẩm hiện đã hết hàng</p>
+                        </c:if>
+                        <c:if test="${item.quantity > item.product.stock}">
+                            <p class="stock-warning">⚠️ Số lượng trong giỏ hàng vượt quá tồn kho</p>
+                        </c:if>
                     </div>
                     
                     <div class="quantity-controls">
                         <form action="cart" method="post" style="display: inline;">
                             <input type="hidden" name="action" value="update">
-                            <input type="hidden" name="productId" value="${item.product.id}">
+                            <input type="hidden" name="cartId" value="${item.id}">
                             <input type="number" name="quantity" value="${item.quantity}" 
-                                   min="1" max="${item.product.stock}" class="form-control quantity-input">
-                            <button type="submit" class="btn btn-sm btn-primary">Cập nhật</button>
+                                   min="1" max="${item.product.stock}" class="form-control quantity-input"
+                                   ${(item.product.status == 'OUT_OF_STOCK' || item.product.stock == 0) ? 'disabled' : ''}>
+                            <button type="submit" class="btn btn-sm btn-primary" 
+                                    ${(item.product.status == 'OUT_OF_STOCK' || item.product.stock == 0) ? 'disabled' : ''}>Cập nhật</button>
                         </form>
                         
                         <form action="cart" method="post" style="display: inline;">
                             <input type="hidden" name="action" value="remove">
-                            <input type="hidden" name="productId" value="${item.product.id}">
+                            <input type="hidden" name="cartId" value="${item.id}">
                             <button type="submit" class="btn btn-sm btn-danger">Xóa</button>
                         </form>
                     </div>

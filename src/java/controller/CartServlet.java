@@ -1,9 +1,12 @@
 package controller;
 
 import com.google.gson.Gson;
+import dao.CartDAO;
+import dao.CartDAO.CartResult;
 import productDao.ProductDAO;
 import model.Product;
 import model.CartItem;
+import model.User;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -20,6 +23,7 @@ import java.util.Map;
 @WebServlet(name = "CartServlet", urlPatterns = {"/cart"})
 public class CartServlet extends HttpServlet {
     private ProductDAO productDAO = new ProductDAO();
+    private CartDAO cartDAO = new CartDAO();
     private Gson gson = new Gson();
 
     @Override
@@ -27,12 +31,18 @@ public class CartServlet extends HttpServlet {
             throws ServletException, IOException {
         
         HttpSession session = request.getSession();
+        User loggedInUser = (User) session.getAttribute("loggedInUser");
+        
+        if (loggedInUser == null) {
+            response.sendRedirect("login");
+            return;
+        }
+        
         String action = request.getParameter("action");
         
         if ("count".equals(action)) {
-            // Trả về số lượng item trong giỏ hàng
-            List<CartItem> cart = (List<CartItem>) session.getAttribute("cart");
-            int cartSize = cart != null ? cart.size() : 0;
+            // Trả về số lượng item trong giỏ hàng từ database
+            int cartSize = cartDAO.getCartItemCount(loggedInUser.getId());
             
             Map<String, Object> result = new HashMap<>();
             result.put("success", true);
@@ -41,11 +51,8 @@ public class CartServlet extends HttpServlet {
             response.setContentType("application/json");
             response.getWriter().write(gson.toJson(result));
         } else {
-            // Hiển thị trang giỏ hàng
-            List<CartItem> cart = (List<CartItem>) session.getAttribute("cart");
-            if (cart == null) {
-                cart = new ArrayList<>();
-            }
+            // Hiển thị trang giỏ hàng - lấy từ database
+            List<CartItem> cart = cartDAO.getCartItems(loggedInUser.getId());
             
             request.setAttribute("cart", cart);
             request.getRequestDispatcher("cart.jsp").forward(request, response);
@@ -57,6 +64,13 @@ public class CartServlet extends HttpServlet {
             throws ServletException, IOException {
         
         HttpSession session = request.getSession();
+        User loggedInUser = (User) session.getAttribute("loggedInUser");
+        
+        if (loggedInUser == null) {
+            response.sendRedirect("login");
+            return;
+        }
+        
         String action = request.getParameter("action");
         
         if ("add".equals(action)) {
@@ -64,86 +78,54 @@ public class CartServlet extends HttpServlet {
             int productId = Integer.parseInt(request.getParameter("productId"));
             int quantity = Integer.parseInt(request.getParameter("quantity"));
             
-            Product product = productDAO.selectProduct(productId);
-            if (product != null && product.getStock() >= quantity) {
-                addToCart(session, product, quantity);
-                
-                Map<String, Object> result = new HashMap<>();
-                result.put("success", true);
-                result.put("message", "Đã thêm " + product.getName() + " vào giỏ hàng");
-                
-                response.setContentType("application/json");
-                response.getWriter().write(gson.toJson(result));
-            } else {
-                Map<String, Object> result = new HashMap<>();
-                result.put("success", false);
-                result.put("message", "Sản phẩm không có đủ số lượng trong kho");
+            // Sử dụng CartDAO với trigger để thêm vào giỏ hàng
+            CartResult result = cartDAO.addToCart(loggedInUser.getId(), productId, quantity);
+            
+            Map<String, Object> jsonResult = new HashMap<>();
+            jsonResult.put("success", result.isSuccess());
+            jsonResult.put("message", result.getMessage());
+            
+            // Nếu thất bại, lấy thông tin stock hiện tại
+            if (!result.isSuccess()) {
+                Product product = productDAO.selectProduct(productId);
                 if (product != null) {
-                    result.put("availableStock", product.getStock());
+                    jsonResult.put("availableStock", product.getStock());
                 }
-                
-                response.setContentType("application/json");
-                response.getWriter().write(gson.toJson(result));
             }
+            
+            response.setContentType("application/json");
+            response.getWriter().write(gson.toJson(jsonResult));
+            
         } else if ("update".equals(action)) {
             // Cập nhật số lượng sản phẩm trong giỏ hàng
-            int productId = Integer.parseInt(request.getParameter("productId"));
+            int cartId = Integer.parseInt(request.getParameter("cartId"));
             int quantity = Integer.parseInt(request.getParameter("quantity"));
             
-            updateCartItem(session, productId, quantity);
-            response.sendRedirect("cart");
+            CartResult result = cartDAO.updateCart(cartId, quantity);
+            
+            if (result.isSuccess()) {
+                response.sendRedirect("cart");
+            } else {
+                request.setAttribute("error", result.getMessage());
+                List<CartItem> cart = cartDAO.getCartItems(loggedInUser.getId());
+                request.setAttribute("cart", cart);
+                request.getRequestDispatcher("cart.jsp").forward(request, response);
+            }
             
         } else if ("remove".equals(action)) {
             // Xóa sản phẩm khỏi giỏ hàng
-            int productId = Integer.parseInt(request.getParameter("productId"));
+            int cartId = Integer.parseInt(request.getParameter("cartId"));
             
-            removeFromCart(session, productId);
-            response.sendRedirect("cart");
-        }
-    }
-
-    private void addToCart(HttpSession session, Product product, int quantity) {
-        List<CartItem> cart = (List<CartItem>) session.getAttribute("cart");
-        if (cart == null) {
-            cart = new ArrayList<>();
-            session.setAttribute("cart", cart);
-        }
-        
-        // Kiểm tra sản phẩm đã có trong giỏ hàng chưa
-        boolean found = false;
-        for (CartItem item : cart) {
-            if (item.getProduct().getId() == product.getId()) {
-                item.setQuantity(item.getQuantity() + quantity);
-                found = true;
-                break;
+            boolean success = cartDAO.removeFromCart(cartId);
+            
+            if (success) {
+                response.sendRedirect("cart");
+            } else {
+                request.setAttribute("error", "Không thể xóa sản phẩm khỏi giỏ hàng");
+                List<CartItem> cart = cartDAO.getCartItems(loggedInUser.getId());
+                request.setAttribute("cart", cart);
+                request.getRequestDispatcher("cart.jsp").forward(request, response);
             }
-        }
-        
-        if (!found) {
-            cart.add(new CartItem(product, quantity));
-        }
-    }
-    
-    private void updateCartItem(HttpSession session, int productId, int quantity) {
-        List<CartItem> cart = (List<CartItem>) session.getAttribute("cart");
-        if (cart != null) {
-            for (CartItem item : cart) {
-                if (item.getProduct().getId() == productId) {
-                    if (quantity <= 0) {
-                        cart.remove(item);
-                    } else {
-                        item.setQuantity(quantity);
-                    }
-                    break;
-                }
-            }
-        }
-    }
-    
-    private void removeFromCart(HttpSession session, int productId) {
-        List<CartItem> cart = (List<CartItem>) session.getAttribute("cart");
-        if (cart != null) {
-            cart.removeIf(item -> item.getProduct().getId() == productId);
         }
     }
 }
